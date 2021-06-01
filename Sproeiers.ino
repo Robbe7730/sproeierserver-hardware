@@ -1,11 +1,20 @@
 #include <ESP8266WiFi.h>
+
+// Library name: PubSubClient
 #include <PubSubClient.h>
+
+// Library name: DHT sensor library
+#include "DHT.h"
+
+// Library name: elapsedMillis
+#include <elapsedMillis.h>
 
 #include "settings.h"
 
 WiFiClient wifi_client;
-
 PubSubClient client(wifi_client);
+DHT dht(DHT11_PIN, DHT11);
+elapsedMillis millis_since_last_status_update;
 
 void setup_wifi() {
     delay(10);
@@ -20,7 +29,7 @@ void setup_wifi() {
     Serial.println();
     randomSeed(micros());
     Serial.println("Connected");
-    Serial.println("IP address: ");
+    Serial.println("IP address:");
     Serial.println(WiFi.localIP());
 }
 
@@ -66,6 +75,7 @@ void setup() {
   pinMode(SPRINKLER_ONE, OUTPUT);
   pinMode(SPRINKLER_TWO, OUTPUT);
   pinMode(SPRINKLER_THREE, OUTPUT);
+  pinMode(DHT11_PIN, INPUT);
 
   digitalWrite(LED_BUILTIN, LOW);
   
@@ -80,8 +90,47 @@ void setup() {
   reconnect();
   
   digitalWrite(LED_BUILTIN, HIGH);
+
+  dht.begin();
+}
+
+void send_float(const char* topic, float value) {
+    char buffer[6] = {0};
+    snprintf(buffer, 6, "%f", value);
+    
+    Serial.print("Sending \"");
+    Serial.print(buffer);
+    Serial.print("\" to ");
+    Serial.println(topic);
+
+    if (!client.publish(topic, buffer)) {
+        Serial.print("Could not publish");
+    }
+}
+
+void send_temperature(float temperature) {
+    send_float(MQTT_TOPIC_TEMPERATURE, temperature);
+}
+
+void send_humidity(float humidity) {
+    send_float(MQTT_TOPIC_HUMIDITY, humidity);
 }
 
 void loop() {
-   client.loop();
+    client.loop();
+
+    if (millis_since_last_status_update > STATUS_UPDATE_INTERVAL) {
+        millis_since_last_status_update -= STATUS_UPDATE_INTERVAL;
+        
+        float humidity = dht.readHumidity();
+        float temperature = dht.readTemperature();
+  
+        Serial.print("Humidity: ");
+        Serial.println(humidity);
+        Serial.print("Temperature: ");
+        Serial.println(temperature);
+
+        send_temperature(temperature);
+        send_humidity(humidity);
+    }
 }
