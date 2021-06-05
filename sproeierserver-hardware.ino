@@ -1,4 +1,4 @@
-//#define SERIAL_ENABLED
+#include <stdarg.h>
 
 #include <ESP8266WiFi.h>
 
@@ -13,54 +13,78 @@
 
 #include "settings.h"
 
+#ifdef SERIAL_ENABLED 
+  #define PRINTLN(...)                              \
+        serial_printf("%s:%d ", __FILE__, __LINE__);\
+        serial_printf(__VA_ARGS__);                 \
+        Serial.println()
+#else
+  #define PRINTLN(...)
+#endif
+
 WiFiClient wifi_client;
 PubSubClient client(wifi_client);
 DHT dht(DHT11_PIN, DHT11);
 elapsedMillis millis_since_last_status_update;
 
+void serial_printf() {}
+
+void serial_printf(const char *fmt, ...) {
+  char buff[SERIAL_PRINTF_BUFF_SIZE];
+  
+  va_list pargs;
+  va_start(pargs, fmt);
+  vsnprintf(buff, SERIAL_PRINTF_BUFF_SIZE, fmt, pargs);
+  va_end(pargs);
+  Serial.print(buff);
+}
+
+char* PUBSUB_ERRORS[10] = {
+  "MQTT_CONNECTION_TIMEOUT",
+  "MQTT_CONNECTION_LOST",
+  "MQTT_CONNECT_FAILED",
+  "MQTT_DISCONNECTED",
+  "MQTT_CONNECTED",
+  "MQTT_CONNECT_BAD_PROTOCOL",
+  "MQTT_CONNECT_BAD_CLIENT_ID",
+  "MQTT_CONNECT_UNAVAILABLE",
+  "MQTT_CONNECT_BAD_CREDENTIALS",
+  "MQTT_CONNECT_UNAUTHORIZED"
+};
+
 void setup_wifi() {
     delay(10);
     
-    #ifdef SERIAL_ENABLED
-    Serial.println();
-    Serial.print("Connecting to ");
-    Serial.println(WIFI_SSID);
-    #endif // SERIAL_ENABLED
+    PRINTLN("Connecting to %s", WIFI_SSID);
     
     WiFi.begin(WIFI_SSID, WIFI_PSK);
     while (WiFi.status() != WL_CONNECTED) {
       delay(500);
-      #ifdef SERIAL_ENABLED
-      Serial.print(".");
-      #endif // SERIAL_ENABLED
     }
-    #ifdef SERIAL_ENABLED
-    Serial.println();
-    Serial.println("Connected");
-    Serial.println("IP address:");
-    Serial.println(WiFi.localIP());
-    #endif // SERIAL_ENABLED
+    
+    PRINTLN("Connected");
+    PRINTLN("IP address: %s", WiFi.localIP().toString().c_str());
 }
 
 
 void reconnect() {
+  if(client.connected()) {
+    client.disconnect();
+  }
+  
   while (!client.connected()) {
-    #ifdef SERIAL_ENABLED
-    Serial.println("Attempting MQTT connection...");
-    #endif // SERIAL_ENABLED
-    String clientId = MQTT_CLIENT_ID;
-    
-    if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
-      #ifdef SERIAL_ENABLED
-      Serial.println("Connected");
-      #endif // SERIAL_ENABLED
+    PRINTLN("Attempting MQTT connection...");
+
+    if (client.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
+      PRINTLN("Connected");
       client.subscribe(MQTT_TOPIC_SPRINKLER);
     } else {
-      #ifdef SERIAL_ENABLED
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(", waiting 5 seconds...");
-      #endif // SERIAL_ENABLED
+      PRINTLN(
+        "failed, rc=%d (%s), waiting 5 seconds...",
+        client.state(),
+        PUBSUB_ERRORS[client.state() + 4]
+      );
+      client.disconnect();
       delay(5000);
     }
   }
@@ -73,14 +97,10 @@ void set_active_sprinkler(byte sprinkler_id) {
 }
 
 void callback(char* topic, byte *payload, unsigned int payloadLength) {
-    #ifdef SERIAL_ENABLED
-    Serial.println("-------new message from broker-----");
-    Serial.print("topic:");
-    Serial.println(topic);
-    Serial.print("data:");  
-    Serial.write(payload, payloadLength);
-    Serial.println();
-    #endif // SERIAL_ENABLED
+    PRINTLN("-------new message from broker-----");
+    PRINTLN("topic: %s", topic);
+    PRINTLN("data: %s", payload);
+    PRINTLN();
 
     if (strncmp(topic, MQTT_TOPIC_SPRINKLER, strlen(MQTT_TOPIC_SPRINKLER)) == 0) {
         set_active_sprinkler(payload[0] - '0');
@@ -99,10 +119,11 @@ void setup() {
   #ifdef SERIAL_ENABLED
   Serial.begin(115200);
   Serial.setTimeout(500);
+  Serial.println();
   #endif // SERIAL_ENABLED
 
   setup_wifi();
-
+  
   client.setServer(MQTT_BROKER_IP, MQTT_BROKER_PORT);
   client.setCallback(callback);
  
@@ -117,15 +138,11 @@ void send_float(const char* topic, float value) {
     char buffer[6] = {0};
     snprintf(buffer, 6, "%f", value);
     
-    #ifdef SERIAL_ENABLED
-    Serial.print("Sending \"");
-    Serial.print(buffer);
-    Serial.print("\" to ");
-    Serial.println(topic);
-    #endif // SERIAL_ENABLED
+    PRINTLN("Sending \"%s\" to %s", buffer, topic);
 
-    if (!client.publish(topic, buffer)) {
-        Serial.print("Could not publish");
+    while(!client.publish(topic, buffer)) {
+        PRINTLN("Could not publish, attempting reconnect");
+        reconnect();
     }
 }
 
@@ -141,19 +158,17 @@ void loop() {
     client.loop();
 
     if (millis_since_last_status_update > STATUS_UPDATE_INTERVAL) {
+        digitalWrite(LED_BUILTIN, LOW);
         millis_since_last_status_update -= STATUS_UPDATE_INTERVAL;
         
         float humidity = dht.readHumidity();
         float temperature = dht.readTemperature();
 
-        #ifdef SERIAL_ENABLED
-        Serial.print("Humidity: ");
-        Serial.println(humidity);
-        Serial.print("Temperature: ");
-        Serial.println(temperature);
-        #endif // SERIAL_ENABLED
+        PRINTLN("Humidity: %f", humidity);
+        PRINTLN("Temperature: %f", temperature);
 
         send_temperature(temperature);
         send_humidity(humidity);
+        digitalWrite(LED_BUILTIN, HIGH);
     }
 }
