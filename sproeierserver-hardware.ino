@@ -75,8 +75,17 @@ void reconnect() {
   while (!client.connected()) {
     PRINTLN("Attempting MQTT connection...");
 
-    if (client.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
+    if (client.connect(
+      MQTT_CLIENT_ID,
+      MQTT_USER,
+      MQTT_PASS,
+      MQTT_TOPIC_STATUS,
+      1,
+      true,
+      "1"
+    )) {
       PRINTLN("Connected");
+      client.publish(MQTT_TOPIC_STATUS, "0", true);
       client.subscribe(MQTT_TOPIC_SPRINKLER);
     } else {
       PRINTLN(

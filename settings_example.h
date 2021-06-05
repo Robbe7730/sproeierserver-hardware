@@ -14,6 +14,7 @@
 #define MQTT_TOPIC_SPRINKLER "sprinklers/active"
 #define MQTT_TOPIC_TEMPERATURE "sprinklers/temperature"
 #define MQTT_TOPIC_HUMIDITY "sprinklers/humidity"
+#define MQTT_TOPIC_STATUS "sprinklers/status"
 
 #define DHT11_PIN D5
 
